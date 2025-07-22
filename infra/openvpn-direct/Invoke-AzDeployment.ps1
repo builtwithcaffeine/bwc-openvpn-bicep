@@ -237,6 +237,7 @@ function Get-AzIdentity {
         } else {
             Write-Warning "Unknown Azure Identity Type: $($azIdentity.user.type)"
             return $null
+            break
         }
 
         # Get Role Assignments
@@ -246,6 +247,7 @@ function Get-AzIdentity {
             Write-Host "RBAC Assignments......: $($roles -join ', ')"
         } else {
             Write-Warning "No RBAC assignments found for the identity."
+            break
         }
 
         # Return Azure Identity Name
@@ -413,8 +415,8 @@ if (!$servicePrincipalAuthentication) {
 # Get Azure Identity, Required for Deployment Tags (DeployedBy:)
 $azIdentityName = Get-AzIdentity
 
-# Get Public IP Address
-$publicIP = (Invoke-WebRequest -Uri 'https://ifconfig.me/ip').Content
+# Get User Public IP Address
+$publicIp = (Invoke-RestMethod -Uri 'https://ifconfig.me/ip')
 
 # Change Azure Subscription
 Write-Output `r "Updating Azure Subscription context to $subscriptionId"
@@ -437,14 +439,13 @@ if ($deploy) {
         --name iac-$deployGuid `
         --location $location `
         --template-file ./main.bicep `
-        --parameters main.bicepparam `
+        --parameters ./main.bicepparam `
         --parameters `
         location=$location `
         locationShortCode=$($locationShortCodeMap.$location) `
         customerName=$customerName `
         environmentType=$environmentType `
         deployedBy=$azIdentityName `
-        publicIp=$publicIp `
         --confirm-with-what-if `
         --output none
 

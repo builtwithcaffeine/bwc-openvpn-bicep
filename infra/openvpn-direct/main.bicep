@@ -1,66 +1,101 @@
 targetScope = 'subscription'
 
-// Parameters Imported from Invoke-AzDeployment.ps1
+//
+// Imported Parameters
+
+@description('Azure Location')
+param location string
+
+@description('Azure Location Short Code')
+param locationShortCode string
 
 @description('Customer Name')
 param customerName string
 
 @description('Environment Type')
-@allowed(['dev', 'acc', 'prod'])
 param environmentType string
 
-param location string
-
-@description('Location Short Code')
-param locationShortCode string
-
-@description('Deployed By')
+@description('User Deployment Name')
 param deployedBy string
 
-@description('Azure Tags')
+@description('Azure Metadata Tags')
 param tags object = {
+  environmentType: environmentType
   deployedBy: deployedBy
-  deployedOn: utcNow('yyyy-MM-dd')
-  Environment: environmentType
+  deployedDate: utcNow('yyyy-MM-dd')
 }
 
-var cloudInit = base64(loadTextContent('openvpn.yaml'))
+@description('Cloud-init configuration as a string')
+@allowed([
+  'cloudInit.yaml'
+])
+param cloudInitFile string = 'cloudInit.yaml'
+
+var cloudInitData = loadTextContent(cloudInitFile)
+
+// var cloudInitData = '''
+// #cloud-config
+// package_update: true
+// package_upgrade: true
+// packages:
+//   - nginx
+
+// runcmd:
+//   - systemctl enable nginx
+//   - systemctl start nginx
+
+// write_files:
+//   - path: /var/www/html/index.html
+//     permissions: '0644'
+//     content: |
+//       <html>
+//         <head>
+//           <title>Welcome to Nginx on Ubuntu 24.04 LTS!</title>
+//         </head>
+//         <body>
+//           <h1>It works!</h1>
+//         </body>
+//       </html>
+// '''
 
 //
+// Bicep Deployment Variables
 
-@description('Resource Group Name')
-param resourceGroupName string = 'rg-x-${customerName}-openvpn-${environmentType}-${locationShortCode}'
+@description('The Resource Group Name')
+param resourceGroupName string = 'rg-x-openvpn-${customerName}-linux-${locationShortCode}'
 
-@description('Network Security Group Name')
-param networkSecurityGroupName string = 'nsg-${customerName}-openvpn-${environmentType}-${locationShortCode}'
+param keyVaultName string = 'kv-${customerName}-linux-${locationShortCode}'
 
-@description('Public IP Address')
-param publicIp string
+@description('The Network Security Group Name')
+param networkSecurityGroupName string = 'nsg-${customerName}-linux-${locationShortCode}'
 
-@description('Virtual Network Name')
-param virtualNetworkName string = 'vnet-${customerName}-openvpn-${environmentType}-${locationShortCode}'
+@description('The Virtual Network Name')
+param virtualNetworkName string = 'vnet-${customerName}-linux-${locationShortCode}'
 
-param routeTableName string = 'rt-openvpn'
+@description('The Subnet Name')
+param subnetName string = 'snet-${customerName}-linux-${locationShortCode}'
 
-//@description('Virtual Network Settings')
-//param virtualNetworkSettings object
+@description('The Virtual Network Address Space')
+param vnetAddressSpace array
 
-@description('Virtual Machine Name')
-param virtualMachineName string = 'vm-${customerName}-openvpn-${environmentType}-${locationShortCode}'
+@description('The Virtual Network Address Space')
+param subnetAddressPrefix string
 
-@description('Virtual Machine User Name')
-param virtualMachineUserName string
+@description('The name of the virtual machine')
+param vmHostName string = 'vm-linux-01'
 
+@description('The Local User Account Name')
+param vmUserName string
+
+@description('The Local User Account Password')
 @secure()
-@description('Virtual Machine User Password')
-param virtualMachineUserPassword string
+param vmUserPassword string
 
 //
-// No Hard Code Values
-//
+// Azure Verified Modules - No Hard Coded Values below this line!
 
 module createResourceGroup 'br/public:avm/res/resources/resource-group:0.4.1' = {
-  name: 'createResourceGroup'
+  name: 'create-resource-group'
   params: {
     name: resourceGroupName
     location: location
@@ -68,14 +103,29 @@ module createResourceGroup 'br/public:avm/res/resources/resource-group:0.4.1' = 
   }
 }
 
-module createRouteTable 'br/public:avm/res/network/route-table:0.4.1' = {
-  name: 'routeTableDeployment'
+module createManagedIdentity 'br/public:avm/res/managed-identity/user-assigned-identity:0.4.1' = {
+  name: 'create-managed-identity'
   scope: resourceGroup(resourceGroupName)
   params: {
-    name: routeTableName
+    name: 'id-${vmHostName}-${environmentType}-${locationShortCode}'
+    location: location
+    tags: tags
   }
   dependsOn: [
     createResourceGroup
+  ]
+}
+
+module AssignRbacManagedIdentity 'br/public:avm/res/authorization/role-assignment/rg-scope:0.1.0' = {
+  name: 'AssignRbacManagedIdentity'
+  scope: resourceGroup(resourceGroupName)
+  params: {
+    roleDefinitionIdOrName: 'Contributor'
+    principalId: createManagedIdentity.outputs.principalId
+    principalType: 'ServicePrincipal'
+  }
+  dependsOn: [
+    createManagedIdentity
   ]
 }
 
@@ -87,7 +137,7 @@ module createNetworkSecurityGroup 'br/public:avm/res/network/network-security-gr
     location: location
     securityRules: [
       {
-        name: 'ALLOW_OPENVPN_UDP'
+        name: 'allowOpenVPN_UDP'
         properties: {
           priority: 100
           access: 'Allow'
@@ -99,19 +149,6 @@ module createNetworkSecurityGroup 'br/public:avm/res/network/network-security-gr
           destinationPortRange: '1194'
         }
       }
-      {
-        name: 'ALLOW_OPENSSH_TCP'
-        properties: {
-          priority: 101
-          access: 'Allow'
-          direction: 'Inbound'
-          protocol: 'Tcp'
-          sourceAddressPrefix: publicIp
-          sourcePortRange: '*'
-          destinationAddressPrefix: '*'
-          destinationPortRange: '22'
-        }
-      }
     ]
     tags: tags
   }
@@ -121,43 +158,72 @@ module createNetworkSecurityGroup 'br/public:avm/res/network/network-security-gr
 }
 
 module createVirtualNetwork 'br/public:avm/res/network/virtual-network:0.7.0' = {
-  name: 'createVirtualNetwork'
+  name: 'create-virtual-network'
   scope: resourceGroup(resourceGroupName)
   params: {
     name: virtualNetworkName
     location: location
-    addressPrefixes: [
-      '10.0.0.0/16'
-    ]
+    addressPrefixes: vnetAddressSpace
     subnets: [
       {
-        name: 'default'
-        addressPrefix: '10.0.1.0/24'
+        name: 'snet-shared-resource'
+        addressPrefix: '10.0.0.0/26'
+      }
+      {
+        name: 'snet-compute'
+        addressPrefix: '10.0.0.64/26'
         networkSecurityGroupResourceId: createNetworkSecurityGroup.outputs.resourceId
       }
     ]
     tags: tags
   }
   dependsOn: [
-    createResourceGroup
+    createNetworkSecurityGroup
   ]
 }
 
-module createVirtualMachine 'br/public:avm/res/compute/virtual-machine:0.15.0' = {
-  name: 'createVirtualMachine'
+module createKvPrivateDnsZone 'br/public:avm/res/network/private-dns-zone:0.7.1' = {
+  name: 'create-kv-private-dns-zone'
   scope: resourceGroup(resourceGroupName)
   params: {
-    name: virtualMachineName
-    adminUsername: virtualMachineUserName
-    adminPassword: virtualMachineUserPassword
+    name: 'privatelink.vaultcore.azure.net'
+    virtualNetworkLinks: [
+      {
+        name: 'link-to-vnet-${virtualNetworkName}'
+        virtualNetworkResourceId: createVirtualNetwork.outputs.resourceId
+        registrationEnabled: false
+      }
+    ]
+    tags: tags
+  }
+  dependsOn: [
+    createVirtualNetwork
+  ]
+}
+
+module createVirtualMachine 'br/public:avm/res/compute/virtual-machine:0.16.0' = {
+  name: 'create-virtual-machine'
+  scope: resourceGroup(resourceGroupName)
+  params: {
+    name: vmHostName
+    adminUsername: vmUserName
+    adminPassword: vmUserPassword
     location: location
     osType: 'Linux'
-    vmSize: 'Standard_B1ls' // vcpu cores: 1, memory: 0.5 GB
-    zone: 0
+    vmSize: 'Standard_B2ms'
+    customData: cloudInitData
+    availabilityZone: 1
     bootDiagnostics: true
     secureBootEnabled: true
+    encryptionAtHost: true
     vTpmEnabled: true
     securityType: 'TrustedLaunch'
+    managedIdentities: {
+      systemAssigned: false
+      userAssignedResourceIds: [
+        createManagedIdentity.outputs.resourceId
+      ]
+    }
     imageReference: {
       publisher: 'Canonical'
       offer: 'ubuntu-24_04-lts'
@@ -166,14 +232,13 @@ module createVirtualMachine 'br/public:avm/res/compute/virtual-machine:0.15.0' =
     }
     nicConfigurations: [
       {
-        enableIPForwarding: true
         ipConfigurations: [
           {
             name: 'ipconfig01'
             pipConfiguration: {
-              name: '${virtualMachineName}-pip-01'
+              name: '${vmHostName}-pip-01'
             }
-            subnetResourceId: createVirtualNetwork.outputs.subnetResourceIds[0]
+            subnetResourceId: createVirtualNetwork.outputs.subnetResourceIds[1] // snet-compte
           }
         ]
         nicSuffix: '-nic-01'
@@ -187,8 +252,52 @@ module createVirtualMachine 'br/public:avm/res/compute/virtual-machine:0.15.0' =
         storageAccountType: 'Premium_LRS'
       }
     }
+    tags: tags
   }
   dependsOn: [
     createVirtualNetwork
   ]
 }
+
+module createKeyVault 'br/public:avm/res/key-vault/vault:0.13.0' = {
+  name: 'create-key-vault'
+  scope: resourceGroup(resourceGroupName)
+  params: {
+    name: keyVaultName
+    location: location
+    sku: 'standard'
+    enablePurgeProtection: false
+    enableRbacAuthorization: true
+    publicNetworkAccess: 'Disabled'
+    secrets: [
+      {
+        name: 'certificateAuthPassword'
+        value: 'ca-awesome-password'
+      }
+    ]
+    roleAssignments: [
+      {
+        principalId: createManagedIdentity.outputs.principalId
+        roleDefinitionIdOrName: '/providers/Microsoft.Authorization/roleDefinitions/4633458b-17de-408a-b874-0445c86b69e6' // Key Vault Secrets User
+      }
+    ]
+    privateEndpoints: [
+      {
+        privateDnsZoneGroup: {
+          privateDnsZoneGroupConfigs: [
+            {
+              privateDnsZoneResourceId: createKvPrivateDnsZone.outputs.resourceId
+            }
+          ]
+        }
+        service: 'vault'
+        subnetResourceId: createVirtualNetwork.outputs.subnetResourceIds[0]
+      }
+    ]
+    tags: tags
+  }
+  dependsOn: [
+    AssignRbacManagedIdentity
+  ]
+}
+
