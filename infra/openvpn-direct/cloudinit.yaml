@@ -27,7 +27,7 @@ runcmd:
   - az login --identity
 
   # Fetch CA password from Azure Key Vault
-  - export keyvaultName=kv-bwc-linux-weu
+  - export keyvaultName=kv-bwc-openvpn-acc-weu
   - export caPassword=$(az keyvault secret show --name certificateAuthPassword --vault-name $keyvaultName --query value -o tsv)
 
   # Prepare Easy-RSA environment

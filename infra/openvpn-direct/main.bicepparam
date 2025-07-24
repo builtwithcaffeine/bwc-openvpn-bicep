@@ -21,7 +21,9 @@ param vnetAddressSpace = [
 ]
 
 @description('The name of the subnet to be created.')
-param subnetAddressPrefix = '10.0.0.0/24'
+param sharedResourceAddressPrefix = '10.0.0.0/26'
+param computeAddressPrefix = '10.0.0.64/26'
+param appServiceAddressPrefix = '10.0.0.128/26'
 
 @description('The local user account name for the VM.')
 param vmUserName = 'ladm_bwcadmin'
@@ -29,3 +31,30 @@ param vmUserName = 'ladm_bwcadmin'
 @description('The local user account password for the VM.')
 @secure()
 param vmUserPassword = 'P@ssw0rd123!'
+
+@description('The Log Analytics Workspace Name')
+param vmInsightsLogAnalyticsWorkspaceName = 'log-${customerName}-openvpn-vminsights-${environmentType}-${locationShortCode}'
+
+@description('The App Insights Log Analytics Workspace Name')
+param appInsightsLogAnalyticsWorkspaceName = 'log-${customerName}-openvpn-appinsights-${environmentType}-${locationShortCode}'
+
+@description('The Data Collection Rule Name')
+param linuxDataCollectionRuleName = 'MSVMI-vminsights-linux'
+
+@description('Application Insights Name')
+param appInsightsName = 'appi-${customerName}-openvpn-${environmentType}-${locationShortCode}'
+
+@description('App Service Plan Name')
+param appServicePlanName = 'asp-${customerName}-openvpn-${environmentType}-${locationShortCode}'
+
+@description('The Key Vault Name')
+param keyVaultName = 'kv-${customerName}-openvpn-${environmentType}-${locationShortCode}'
+
+@description('The Network Security Group Name')
+param networkSecurityGroupName = 'nsg-${customerName}-openvpn-${environmentType}-${locationShortCode}'
+
+@description('The Virtual Network Name')
+param virtualNetworkName = 'vnet-${customerName}-openvpn-${environmentType}-${locationShortCode}'
+
+@description('The name of the virtual machine')
+param vmHostName = 'vm-linux-01-${environmentType}'
