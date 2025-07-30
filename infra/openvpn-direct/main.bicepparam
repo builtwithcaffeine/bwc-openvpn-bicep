@@ -50,6 +50,13 @@ param appServicePlanName = 'asp-${customerName}-openvpn-${environmentType}-${loc
 @description('The Key Vault Name')
 param keyVaultName = 'kv-${customerName}-openvpn-${environmentType}-${locationShortCode}'
 
+param keyVaultSecretsArray = [
+      {
+        name: 'certificateAuthPassword'
+        value: 'ca-awesome-password'
+      }
+    ]
+
 @description('The Network Security Group Name')
 param networkSecurityGroupName = 'nsg-${customerName}-openvpn-${environmentType}-${locationShortCode}'
 

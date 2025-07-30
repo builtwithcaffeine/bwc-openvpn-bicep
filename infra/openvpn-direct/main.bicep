@@ -84,6 +84,9 @@ param appServicePlanName string
 @description('The Key Vault Name')
 param keyVaultName string
 
+@description('The Key Vault Secrets Array')
+param keyVaultSecretsArray array
+
 @description('The Network Security Group Name')
 param networkSecurityGroupName string
 
@@ -300,16 +303,11 @@ module createKeyVault 'br/public:avm/res/key-vault/vault:0.13.0' = {
     enablePurgeProtection: false
     enableRbacAuthorization: true
     publicNetworkAccess: 'Disabled'
-    secrets: [
-      {
-        name: 'certificateAuthPassword'
-        value: 'ca-awesome-password'
-      }
-    ]
+    secrets: keyVaultSecretsArray
     roleAssignments: [
       {
         principalId: createManagedIdentity.outputs.principalId
-        roleDefinitionIdOrName: '/providers/Microsoft.Authorization/roleDefinitions/4633458b-17de-408a-b874-0445c86b69e6' // Key Vault Secrets User
+        roleDefinitionIdOrName: '/providers/Microsoft.Authorization/roleDefinitions/b86a8fe4-44ce-4948-aee5-eccb2c155cd7' // Key Vault Secrets Officer
       }
     ]
     privateEndpoints: [
@@ -442,6 +440,7 @@ module createVirtualMachine 'br/public:avm/res/compute/virtual-machine:0.16.0' =
         ]
         nicSuffix: '-nic-01'
         enableAcceleratedNetworking: false
+        enableIPForwarding: true
       }
     ]
     osDisk: {
@@ -462,7 +461,6 @@ module createVirtualMachine 'br/public:avm/res/compute/virtual-machine:0.16.0' =
       enableAutomaticUpgrade: true
     }
     tags: tags
-    
   }
   dependsOn: [
     createVirtualNetwork
@@ -533,6 +531,10 @@ module createAppService 'br/public:avm/res/web/site:0.16.1' = {
       }
       appSettings: [
         {
+          name: 'DEBUG_MODE'
+          value: 'TRUE'
+        }
+        {
           name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
           value: createApplicationInsights.outputs.connectionString
         }
@@ -551,6 +553,14 @@ module createAppService 'br/public:avm/res/web/site:0.16.1' = {
         {
           name: 'SSH_USERNAME'
           value: 'appsvc_ovpn'
+        }
+        {
+         name: 'SSH_SECRET_NAME'
+         value: 'ssh-private-key'
+        }
+        {
+          name: 'CA_PASSWORD'
+          value: keyVaultSecretsArray[0].name // ca-password
         }
         {
           name: 'PORT'
@@ -592,6 +602,10 @@ module createAppService 'br/public:avm/res/web/site:0.16.1' = {
           name: 'OVPN_SERVER4_IP_PRIVATE'
           value: ''
         }
+        {
+          name: 'WEBSITE_HTTPLOGGING_RETENTION_DAYS'
+          value: '2'
+        }
       ]
     }
     privateEndpoints: [
@@ -614,3 +628,4 @@ module createAppService 'br/public:avm/res/web/site:0.16.1' = {
     createVirtualNetwork
   ]
 }
+
