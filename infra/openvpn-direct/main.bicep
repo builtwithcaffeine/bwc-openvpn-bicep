@@ -153,7 +153,6 @@ module createAppInsightsLogAnalyticsWorkspace 'br/public:avm/res/operational-ins
   ]
 }
 
-
 module createManagedIdentity 'br/public:avm/res/managed-identity/user-assigned-identity:0.4.1' = {
   name: 'create-managed-identity'
   scope: resourceGroup(resourceGroupName[1])
@@ -190,7 +189,7 @@ module AssignRbacManagedIdentityRg1 'br/public:avm/res/authorization/role-assign
   }
   dependsOn: [
     createManagedIdentity
-  ]  
+  ]
 }
 
 module createNetworkSecurityGroup 'br/public:avm/res/network/network-security-group:0.5.1' = {
@@ -252,7 +251,7 @@ module createVirtualNetwork 'br/public:avm/res/network/virtual-network:0.7.0' = 
   }
   dependsOn: [
     createNetworkSecurityGroup
-  ]  
+  ]
 }
 
 module createKvPrivateDnsZone 'br/public:avm/res/network/private-dns-zone:0.7.1' = {
@@ -471,7 +470,6 @@ module createVirtualMachine 'br/public:avm/res/compute/virtual-machine:0.16.0' =
 
 // OpenVPN Web App Deployment
 
-
 module createApplicationInsights 'br/public:avm/res/insights/component:0.6.0' = {
   name: 'create-app-insights'
   scope: resourceGroup(resourceGroupName[2])
@@ -530,10 +528,6 @@ module createAppService 'br/public:avm/res/web/site:0.16.1' = {
         ]
       }
       appSettings: [
-        {
-          name: 'DEBUG_MODE'
-          value: 'TRUE'
-        }
         {
           name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
           value: createApplicationInsights.outputs.connectionString
@@ -628,4 +622,3 @@ module createAppService 'br/public:avm/res/web/site:0.16.1' = {
     createVirtualNetwork
   ]
 }
-

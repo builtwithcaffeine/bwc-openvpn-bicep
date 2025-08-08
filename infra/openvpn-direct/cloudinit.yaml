@@ -55,15 +55,19 @@ runcmd:
     if [ ! -f /home/"$USERNAME"/.ssh/id_rsa ]; then
       ssh-keygen -t rsa -b 4096 -f /home/"$USERNAME"/.ssh/id_rsa -N ""
       chown "$USERNAME":"$USERNAME" /home/"$USERNAME"/.ssh/id_rsa*
-      chmod 600 /home/"$USERNAME"/.ssh/id_rsa
-      chmod 644 /home/"$USERNAME"/.ssh/id_rsa.pub
       cat /home/"$USERNAME"/.ssh/id_rsa.pub >> /home/"$USERNAME"/.ssh/authorized_keys
       chown "$USERNAME":"$USERNAME" /home/"$USERNAME"/.ssh/authorized_keys
-      chmod 600 /home/"$USERNAME"/.ssh/authorized_keys
-      
-      echo "[Console Log]: SSH Key Generated and Public Key Added to authorized_keys!"
-        fi
 
+      chmod 600 /home/"$USERNAME"/.ssh/id_rsa
+      chmod 644 /home/"$USERNAME"/.ssh/id_rsa.pub
+      chmod 600 /home/"$USERNAME"/.ssh/authorized_keys
+
+      echo "[Console Log]: SSH Key Generated and Public Key Added to authorized_keys!"
+    fi
+
+    # Allow Service Account access to IP command via sudo
+    - echo "appsvc_ovpn ALL=(ALL) NOPASSWD: /usr/sbin/ip * # Allow Service Account access to IP" >> /etc/sudoers
+    echo "[Console Log]: Updated /etc/sudoers, for [$USERNAME] for 'usr/sbin/ip'!"
 
     # Upload SSH Private Key to Azure Key Vault
   - |
