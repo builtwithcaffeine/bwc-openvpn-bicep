@@ -52,7 +52,7 @@ param keyVaultName = 'kv-${customerName}-openvpn-${environmentType}-${locationSh
 
 param keyVaultSecretsArray = [
       {
-        name: 'certificateAuthPassword'
+        name: 'ca-password'
         value: 'ca-awesome-password'
       }
     ]

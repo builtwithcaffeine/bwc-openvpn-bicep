@@ -114,14 +114,16 @@ param vmUserPassword string
 // Azure Verified Modules - No Hard Coded Values below this line!
 //
 
-module createResourceGroups 'br/public:avm/res/resources/resource-group:0.4.1' = [for rgName in resourceGroupName: {
-  name: 'create-resource-group-${rgName}'
-  params: {
-    name: rgName
-    location: location
-    tags: tags
+module createResourceGroups 'br/public:avm/res/resources/resource-group:0.4.1' = [
+  for rgName in resourceGroupName: {
+    name: 'create-resource-group-${rgName}'
+    params: {
+      name: rgName
+      location: location
+      tags: tags
+    }
   }
-}]
+]
 
 // OpenVPN Virtual Machine Deployment
 
@@ -220,7 +222,7 @@ module createNetworkSecurityGroup 'br/public:avm/res/network/network-security-gr
   ]
 }
 
-module createVirtualNetwork 'br/public:avm/res/network/virtual-network:0.7.0' = {
+module createVirtualNetwork 'br/public:avm/res/network/virtual-network:0.7.1' = {
   name: 'create-virtual-network'
   scope: resourceGroup(resourceGroupName[0])
   params: {
@@ -242,8 +244,8 @@ module createVirtualNetwork 'br/public:avm/res/network/virtual-network:0.7.0' = 
         addressPrefix: appServiceAddressPrefix
         delegation: 'Microsoft.Web/serverFarms'
         serviceEndpoints: [
-        'Microsoft.Storage'
-        'Microsoft.Web'
+          'Microsoft.Storage'
+          'Microsoft.Web'
         ]
       }
     ]
@@ -254,7 +256,7 @@ module createVirtualNetwork 'br/public:avm/res/network/virtual-network:0.7.0' = 
   ]
 }
 
-module createKvPrivateDnsZone 'br/public:avm/res/network/private-dns-zone:0.7.1' = {
+module createKvPrivateDnsZone 'br/public:avm/res/network/private-dns-zone:0.8.0' = {
   name: 'create-kv-private-dns-zone'
   scope: resourceGroup(resourceGroupName[0])
   params: {
@@ -273,7 +275,7 @@ module createKvPrivateDnsZone 'br/public:avm/res/network/private-dns-zone:0.7.1'
   ]
 }
 
-module createAppPrivateDnsZone 'br/public:avm/res/network/private-dns-zone:0.7.1' = {
+module createAppPrivateDnsZone 'br/public:avm/res/network/private-dns-zone:0.8.0' = {
   name: 'create-app-private-dns-zone'
   scope: resourceGroup(resourceGroupName[0])
   params: {
@@ -292,7 +294,7 @@ module createAppPrivateDnsZone 'br/public:avm/res/network/private-dns-zone:0.7.1
   ]
 }
 
-module createKeyVault 'br/public:avm/res/key-vault/vault:0.13.0' = {
+module createKeyVault 'br/public:avm/res/key-vault/vault:0.13.3' = {
   name: 'create-key-vault'
   scope: resourceGroup(resourceGroupName[0])
   params: {
@@ -329,7 +331,7 @@ module createKeyVault 'br/public:avm/res/key-vault/vault:0.13.0' = {
   ]
 }
 
-module createLinuxDataCollectionRule 'br/public:avm/res/insights/data-collection-rule:0.4.2' = {
+module createLinuxDataCollectionRule 'br/public:avm/res/insights/data-collection-rule:0.7.0' = {
   name: 'create-linux-data-collection-rule'
   scope: resourceGroup(resourceGroupName[1])
   params: {
@@ -397,7 +399,7 @@ module createLinuxDataCollectionRule 'br/public:avm/res/insights/data-collection
   ]
 }
 
-module createVirtualMachine 'br/public:avm/res/compute/virtual-machine:0.16.0' = {
+module createVirtualMachine 'br/public:avm/res/compute/virtual-machine:0.20.0' = {
   name: 'create-virtual-machine'
   scope: resourceGroup(resourceGroupName[1])
   params: {
@@ -466,8 +468,6 @@ module createVirtualMachine 'br/public:avm/res/compute/virtual-machine:0.16.0' =
   ]
 }
 
-
-
 // OpenVPN Web App Deployment
 
 module createApplicationInsights 'br/public:avm/res/insights/component:0.6.0' = {
@@ -484,7 +484,7 @@ module createApplicationInsights 'br/public:avm/res/insights/component:0.6.0' = 
   ]
 }
 
-module createAppServicePlan 'br/public:avm/res/web/serverfarm:0.4.1' = {
+module createAppServicePlan 'br/public:avm/res/web/serverfarm:0.5.0' = {
   name: 'create-app-service-plan'
   scope: resourceGroup(resourceGroupName[2])
   params: {
@@ -499,7 +499,7 @@ module createAppServicePlan 'br/public:avm/res/web/serverfarm:0.4.1' = {
   ]
 }
 
-module createAppService 'br/public:avm/res/web/site:0.16.1' = {
+module createAppService 'br/public:avm/res/web/site:0.19.3' = {
   name: 'create-app-service'
   scope: resourceGroup(resourceGroupName[2])
   params: {
@@ -508,10 +508,13 @@ module createAppService 'br/public:avm/res/web/site:0.16.1' = {
     kind: 'app,linux'
     httpsOnly: true
     serverFarmResourceId: createAppServicePlan.outputs.resourceId
-    virtualNetworkSubnetId: createVirtualNetwork.outputs.subnetResourceIds[2] // snet-appservice
+    virtualNetworkSubnetResourceId: createVirtualNetwork.outputs.subnetResourceIds[2] // snet-appservice
     publicNetworkAccess: 'Enabled'
-    vnetRouteAllEnabled: true
-    vnetContentShareEnabled: true
+    outboundVnetRouting: {
+      applicationTraffic: true
+      contentShareTraffic: true
+    }
+    keyVaultAccessIdentityResourceId: createManagedIdentity.outputs.resourceId
     managedIdentities: {
       userAssignedResourceIds: [
         createManagedIdentity.outputs.resourceId
@@ -529,6 +532,10 @@ module createAppService 'br/public:avm/res/web/site:0.16.1' = {
       }
       appSettings: [
         {
+          name: 'WEBSITE_HTTPLOGGING_RETENTION_DAYS'
+          value: '2'
+        }
+        {
           name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
           value: createApplicationInsights.outputs.connectionString
         }
@@ -545,60 +552,36 @@ module createAppService 'br/public:avm/res/web/site:0.16.1' = {
           value: createKeyVault.outputs.name
         }
         {
-          name: 'SSH_USERNAME'
+          name: 'SSH_USER_NAME'
           value: 'appsvc_ovpn'
         }
         {
-         name: 'SSH_SECRET_NAME'
-         value: 'ssh-private-key'
-        }
-        {
-          name: 'CA_PASSWORD'
-          value: keyVaultSecretsArray[0].name // ca-password
-        }
-        {
           name: 'PORT'
-          value: '8000'
+          value: '8080'
         }
         {
-          name: 'OVPN_SERVER1_NAME'
-          value: ''
+          name: 'NODE_ENV'
+          value: 'Production'
         }
         {
-          name: 'OVPN_SERVER1_IP_PUBLIC'
-          value: ''
+          name: 'OVPN_SERVER01_NAME'
+          value: createVirtualMachine.outputs.name
         }
         {
-          name: 'OVPN_SERVER1_IP_PRIVATE'
-          value: ''
+          name: 'OVPN_SERVER01_PUBLIC_IP'
+          value: createVirtualMachine.outputs.nicConfigurations[0].ipConfigurations[0].publicIp
         }
         {
-          name: 'OVPN_SERVER2_NAME'
-          value: ''
+          name: 'OVPN_SERVER01_PRIVATE_IP'
+          value: createVirtualMachine.outputs.nicConfigurations[0].ipConfigurations[0].privateIP
         }
         {
-          name: 'OVPN_SERVER2_IP_PUBLIC'
-          value: ''
+          name: 'OVPN_SERVER01_SSH_KEY_NAME'
+          value: '@Microsoft.KeyVault(VaultName=${keyVaultName};SecretName=ssh-private-key)'
         }
         {
-          name: 'OVPN_SERVER2_IP_PRIVATE'
-          value: ''
-        }
-        {
-          name: 'OVPN_SERVER3_NAME'
-          value: ''
-        }
-        {
-          name: 'OVPN_SERVER3_IP_PUBLIC'
-          value: ''
-        }
-        {
-          name: 'OVPN_SERVER4_IP_PRIVATE'
-          value: ''
-        }
-        {
-          name: 'WEBSITE_HTTPLOGGING_RETENTION_DAYS'
-          value: '2'
+          name: 'OVPN_SERVER01_CA_PASSWORD'
+          value: '@Microsoft.KeyVault(VaultName=${keyVaultName};SecretName=ca-password)'
         }
       ]
     }

@@ -20,6 +20,22 @@ write_files:
       export KEYVAULT_NAME='kv-bwc-openvpn-dev-weu'
       export KEYVAULT_SSH_KEY_NAME='ssh-private-key'
 
+  - path: /etc/logrotate.d/openvpn
+    permissions: "0644"
+    content: |
+      /var/log/openvpn/*.log {
+          daily              # Rotate logs daily
+          missingok          # Don't error if log file is missing
+          rotate 30          # Keep 30 days of logs (30 rotated files)
+          compress           # Compress old logs with gzip
+          delaycompress      # Don't compress the most recent old log
+          notifempty         # Don't rotate empty log files
+          create 0640 root root  # Create new log file with these permissions
+          postrotate         # Commands to run after rotation
+              /bin/systemctl reload openvpn@server.service > /dev/null 2>&1 || true
+          endscript
+      }
+
 runcmd:
   # Enable IP forwarding
   - sed -i 's/^#\s*\(net\.ipv4\.ip_forward=1\)/\1/' /etc/sysctl.conf
@@ -52,6 +68,12 @@ runcmd:
       echo "[Console Log]: $USERNAME Created!"
     fi
 
+    # Allow Service Account access to IP command via sudo
+    echo "" >> /etc/sudoers
+    echo "# Allow Service Account access to IP" >> /etc/sudoers
+    echo "appsvc_ovpn ALL=(ALL) NOPASSWD: /usr/sbin/ip route *" >> /etc/sudoers
+    echo "[Console Log]: Updated /etc/sudoers, for [$USERNAME] for '/usr/sbin/ip'!"
+
     if [ ! -f /home/"$USERNAME"/.ssh/id_rsa ]; then
       ssh-keygen -t rsa -b 4096 -f /home/"$USERNAME"/.ssh/id_rsa -N ""
       chown "$USERNAME":"$USERNAME" /home/"$USERNAME"/.ssh/id_rsa*
@@ -65,16 +87,16 @@ runcmd:
       echo "[Console Log]: SSH Key Generated and Public Key Added to authorized_keys!"
     fi
 
-    # Allow Service Account access to IP command via sudo
-    - echo "appsvc_ovpn ALL=(ALL) NOPASSWD: /usr/sbin/ip * # Allow Service Account access to IP" >> /etc/sudoers
-    echo "[Console Log]: Updated /etc/sudoers, for [$USERNAME] for 'usr/sbin/ip'!"
-
-    # Upload SSH Private Key to Azure Key Vault
+  # Upload SSH Private Key to Azure Key Vault
   - |
     . /etc/cloud-init-vars.sh
     export sshPrivateKey=$(cat /home/"$USERNAME"/.ssh/id_rsa)
-    az keyvault secret set --name "$KEYVAULT_SSH_KEY_NAME" --vault-name "$KEYVAULT_NAME" --value "$sshPrivateKey" --output none
-    echo "[Console Log]: SSH Private Key Uploaded to Key Vault!"
+    if az keyvault secret set --name "$KEYVAULT_SSH_KEY_NAME" --vault-name "$KEYVAULT_NAME" --value "$sshPrivateKey" --output none; then
+      echo "[Console Log]: SSH Private Key Uploaded to Key Vault!"
+    else
+      echo "[Console Log]: Failed to upload SSH Private Key to Key Vault!" >&2
+      exit 1
+    fi
 
   # Prepare Easy-RSA environment
   - |
@@ -87,7 +109,10 @@ runcmd:
   # Build CA using expect
   - |
     . /etc/cloud-init-vars.sh
-    export caPassword=$(az keyvault secret show --name certificateAuthPassword --vault-name "$KEYVAULT_NAME" --query value -o tsv)
+    if ! caPassword=$(az keyvault secret show --name ca-password --vault-name "$KEYVAULT_NAME" --query value -o tsv 2>/dev/null); then
+      echo "[Console Log]: Failed to retrieve CA password from Key Vault!" >&2
+      exit 1
+    fi
 
     expect <<EOF
     log_user 0
@@ -109,7 +134,10 @@ runcmd:
   # Generate Server Certificate
   - |
     . /etc/cloud-init-vars.sh
-    export caPassword=$(az keyvault secret show --name certificateAuthPassword --vault-name "$KEYVAULT_NAME" --query value -o tsv)
+    if ! caPassword=$(az keyvault secret show --name ca-password --vault-name "$KEYVAULT_NAME" --query value -o tsv 2>/dev/null); then
+      echo "[Console Log]: Failed to retrieve CA password from Key Vault!" >&2
+      exit 1
+    fi
 
     echo "Generating Server Certificate..."
     cd /etc/openvpn/easy-rsa/
@@ -131,8 +159,40 @@ runcmd:
   # Copy generated files to OpenVPN directory
   - cp /etc/openvpn/easy-rsa/pki/dh.pem /etc/openvpn/easy-rsa/pki/ca.crt /etc/openvpn/easy-rsa/pki/issued/$(hostname).crt /etc/openvpn/easy-rsa/pki/private/$(hostname).key /etc/openvpn/
 
-  # Create CCD directory and sample config
+  # Generate initial CRL (Certificate Revocation List)
+  - |
+    . /etc/cloud-init-vars.sh
+    if ! caPassword=$(az keyvault secret show --name ca-password --vault-name "$KEYVAULT_NAME" --query value -o tsv 2>/dev/null); then
+      echo "[Console Log]: Failed to retrieve CA password from Key Vault!" >&2
+      exit 1
+    fi
+
+    echo "Generating initial CRL..."
+    cd /etc/openvpn/easy-rsa/
+
+    expect <<EOF
+    log_user 0
+    set timeout -1
+    set caPassword "$caPassword"
+    spawn ./easyrsa gen-crl
+    expect {
+      "Enter pass phrase for*" {
+        send "\$caPassword\r"
+        exp_continue
+      }
+      eof
+    }
+    EOF
+
+    # Copy CRL to OpenVPN directory
+    cp /etc/openvpn/easy-rsa/pki/crl.pem /etc/openvpn/
+    echo "CRL generated and copied to OpenVPN directory!"
+
+  # Create CCD directory
   - mkdir -p /etc/openvpn/ccd
+
+  # Create OpenVPN log directory
+  - mkdir -p /var/log/openvpn
 
   # Write OpenVPN server configuration
   - |
@@ -146,19 +206,39 @@ runcmd:
     cert $(hostname).crt
     key $(hostname).key
     dh dh.pem
+    crl-verify crl.pem
     topology subnet
     server 10.8.0.0 255.255.255.0
     ifconfig-pool-persist /var/log/openvpn/ipp.txt
     client-config-dir ccd
     persist-key
     persist-tun
-    status /var/log/openvpn/openvpn-status.log
-    verb 4
+    status /var/log/openvpn/openvpn-status.log 60
+    log-append /var/log/openvpn/openvpn.log
+    verb 3
+    mute 20
     EOF
 
   # Enable and start OpenVPN service
   - systemctl enable openvpn@server
   - systemctl start openvpn@server
+
+  # Verify OpenVPN service started successfully
+  - |
+    sleep 5
+    if systemctl is-active --quiet openvpn@server; then
+      echo "[Console Log]: OpenVPN service started successfully!"
+    else
+      echo "[Console Log]: OpenVPN service failed to start!" >&2
+      systemctl status openvpn@server
+      exit 1
+    fi
+
+  # Configure Service Account Permissions
+  - |
+    . /etc/cloud-init-vars.sh
+    chown -R "$USERNAME":"$USERNAME" /etc/openvpn/easy-rsa
+    chown -R "$USERNAME":"$USERNAME" /etc/openvpn/ccd
 
   # Set up NAT and routing
   - iptables -t nat -A POSTROUTING -s 10.8.0.0/24 -o eth0 -j MASQUERADE
