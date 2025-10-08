@@ -184,10 +184,6 @@ runcmd:
     }
     EOF
 
-    # Copy CRL to OpenVPN directory
-    cp /etc/openvpn/easy-rsa/pki/crl.pem /etc/openvpn/
-    echo "CRL generated and copied to OpenVPN directory!"
-
   # Create CCD directory
   - mkdir -p /etc/openvpn/ccd
 
@@ -206,7 +202,7 @@ runcmd:
     cert $(hostname).crt
     key $(hostname).key
     dh dh.pem
-    crl-verify crl.pem
+    crl-verify /etc/openvpn/easy-rsa/pki# crl.pem
     topology subnet
     server 10.8.0.0 255.255.255.0
     ifconfig-pool-persist /var/log/openvpn/ipp.txt
